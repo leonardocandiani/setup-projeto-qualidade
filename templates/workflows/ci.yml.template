@@ -1,3 +1,5 @@
+# keepwright:managed — installed by /keepwright:setup. Edit freely; the
+# audit looks for this marker to tell this file apart from one you already had.
 name: CI
 
 on:

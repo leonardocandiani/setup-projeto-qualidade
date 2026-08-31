@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Runs every validator in this directory and aggregates the result.
+#
+# This is what `lefthook.yml` calls on pre-commit and what `ci.yml` calls on a
+# PR, so the same set runs locally and in CI with no second list to keep in
+# sync: drop a `validate-*.ts` in here and it is picked up.
+#
+# Exit codes: 0 all validators passed, 1 at least one failed, 2 no runtime.
+
+set -uo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if command -v bun >/dev/null 2>&1; then
+  RUNNER="bun"
+elif command -v npx >/dev/null 2>&1; then
+  RUNNER="npx --yes tsx"
+else
+  echo "run-all: neither bun nor npx is available, cannot run the validators" >&2
+  echo "         install bun (https://bun.sh) or Node 18+ and retry" >&2
+  exit 2
+fi
+
+shopt -s nullglob
+VALIDATORS=("$DIR"/validate-*.ts)
+shopt -u nullglob
+
+if [ ${#VALIDATORS[@]} -eq 0 ]; then
+  echo "run-all: no validate-*.ts found in $DIR, nothing to check"
+  exit 0
+fi
+
+FAILED=0
+PASSED=0
+for v in "${VALIDATORS[@]}"; do
+  NAME="$(basename "$v")"
+  if $RUNNER "$v"; then
+    PASSED=$((PASSED + 1))
+  else
+    echo "run-all: $NAME FAILED" >&2
+    FAILED=$((FAILED + 1))
+  fi
+done
+
+TOTAL=$((PASSED + FAILED))
+if [ "$FAILED" -gt 0 ]; then
+  echo "run-all: $FAILED of $TOTAL validator(s) failed" >&2
+  exit 1
+fi
+
+echo "run-all: $PASSED/$TOTAL validators passed"

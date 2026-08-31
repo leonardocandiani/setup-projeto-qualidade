@@ -22,6 +22,8 @@ import { basename, join } from "node:path";
 import { resolveStack, type StackSignals } from "./lib/stacks.ts";
 
 interface PartialConfig {
+  /** False when the target is not a git repo; the wizard must stop on this. */
+  isGitRepo?: boolean;
   project?: string;
   repo?: string;
   repoOwner?: string;
@@ -91,9 +93,37 @@ function detectRepo(root: string): { repo: string; owner: string } | null {
   return { repo: `${parsed.owner}/${parsed.name}`, owner: parsed.owner };
 }
 
-/** Propose layers from real src/ subdirectories, capped to a sane set. */
+/**
+ * Where this repo actually keeps its source. A monorepo has no `src/` at the
+ * root, so reading only the root used to return nothing and silently fall back
+ * to the generic default layers, which is the opposite of "derived from the
+ * real structure".
+ */
+function sourceRoot(root: string): string | null {
+  const direct = ["src", "app"].map((d) => join(root, d)).find(existsSync);
+  if (direct) return direct;
+
+  for (const workspace of ["packages", "apps"]) {
+    const dir = join(root, workspace);
+    if (!existsSync(dir)) continue;
+    try {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const nested = ["src", "app"]
+          .map((d) => join(dir, entry.name, d))
+          .find(existsSync);
+        if (nested) return nested;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+/** Propose layers from real source subdirectories, capped to a sane set. */
 function detectLayers(root: string): string[] | null {
-  const srcDir = ["src", "app"].map((d) => join(root, d)).find(existsSync);
+  const srcDir = sourceRoot(root);
   if (!srcDir) return null;
   let entries: string[];
   try {
@@ -188,6 +218,7 @@ function main(): void {
   const pkg = readJsonSafe(join(root, "package.json"));
 
   const out: PartialConfig = {
+    isGitRepo: existsSync(join(root, ".git")),
     project: pkg?.name ?? repoInfo?.repo.split("/")[1] ?? basename(root),
     stack: profile.stack,
     layers: layers ?? profile.defaultLayers,

@@ -1,3 +1,5 @@
+# keepwright:managed — installed by /keepwright:setup. Edit freely; the
+# audit looks for this marker to tell this file apart from one you already had.
 name: Issue Triage
 
 # Classifies a newly opened issue with GitHub Models (free in Actions over the
@@ -17,6 +19,12 @@ name: Issue Triage
 #     does not already exist is dropped — the workflow never creates labels.
 #   - Graceful degradation. No GitHub Models access, a rate limit, or malformed
 #     output falls back to the `needs:human-triage` label (if present) and stops.
+#
+# REQUIRES GitHub Models enabled for the repo or org. Where it is not available
+# the classify call returns empty, the workflow falls back to the
+# `needs:human-triage` label and stops. That is a deliberate soft landing, but it
+# looks identical to "the model had nothing to say", so if triage seems to do
+# nothing, check Models access before debugging the prompt.
 #
 # CONFIG: this whole workflow is a no-op unless the keepwright config sets
 #   issues.triage = "github-models" (the default). Set it to "off" to disable.

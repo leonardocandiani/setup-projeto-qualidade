@@ -5,7 +5,14 @@
   "description": "Declarative configuration produced by detection + the setup wizard and consumed by the deterministic apply engine.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["project", "repo", "stack", "deploy", "runner", "auth"],
+  "required": [
+    "project",
+    "repo",
+    "stack",
+    "deploy",
+    "runner",
+    "auth"
+  ],
   "properties": {
     "project": {
       "type": "string",
@@ -29,47 +36,53 @@
       "default": "English",
       "description": "Output language for GENERATED artifacts (CLAUDE.md prose, rule docs, messages). Read from ~/.claude settings 'language'; the plugin itself stays in English. English when absent."
     },
-    "mode": {
-      "type": "string",
-      "enum": ["setup", "audit", "maintain"],
-      "default": "setup",
-      "description": "setup = greenfield/first install; audit = report integration coverage only; maintain = re-apply deltas + derived rules on an existing repo."
-    },
     "stack": {
       "type": "string",
       "description": "Detected primary stack, e.g. nextjs-serverless, nextjs, node-cli, python-fastapi, deno, go, rust, monorepo."
     },
     "layers": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "Pipeline layers derived from the real structure, e.g. [routes, actions, lib, db, integrations]."
     },
     "deploy": {
       "type": "string",
-      "enum": ["vercel", "supabase-functions", "docker-ghcr", "npm-publish", "static-pages", "none"],
+      "enum": [
+        "vercel",
+        "supabase-functions",
+        "docker-ghcr",
+        "npm-publish",
+        "static-pages",
+        "none"
+      ],
       "description": "Deploy variant chosen by stack; selects the deploy workflow template."
     },
     "runner": {
       "type": "string",
-      "enum": ["self-hosted", "github"],
+      "enum": [
+        "self-hosted",
+        "github"
+      ],
       "default": "self-hosted",
       "description": "GitHub Actions runner target. self-hosted keeps CI minutes at zero."
     },
     "auth": {
       "type": "string",
-      "enum": ["oauth", "apikey"],
+      "enum": [
+        "oauth",
+        "apikey"
+      ],
       "default": "oauth",
       "description": "Claude auth for the AI review/mention workflows. oauth = subscription token via /install-github-app (no metered cost); apikey = ANTHROPIC_API_KEY (pay per use)."
     },
     "criticalFiles": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "Glob/paths flagged as critical; the heuristic review warns when they change."
-    },
-    "customValidators": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "Names of project-specific validators to scaffold into scripts/validators/."
     },
     "derivedPatterns": {
       "type": "object",
@@ -78,12 +91,16 @@
       "properties": {
         "design": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Design/architecture conventions found in the repo (naming, layering, error handling, boundaries)."
         },
         "voice": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Writing-voice conventions found in the repo (commit style, UI copy tone, doc register, banned terms)."
         }
       }
@@ -91,11 +108,14 @@
     "issues": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Automatic issue triage. The triage workflow classifies new issues via GitHub Models (free in Actions) and a deterministic job applies only advisory labels — never closes, assigns, or merges.",
+      "description": "Automatic issue triage. The triage workflow classifies new issues via GitHub Models (free in Actions) and a deterministic job applies only advisory labels \u2014 never closes, assigns, or merges.",
       "properties": {
         "triage": {
           "type": "string",
-          "enum": ["off", "github-models"],
+          "enum": [
+            "off",
+            "github-models"
+          ],
           "default": "github-models",
           "description": "github-models runs the classifier free over the GITHUB_TOKEN; off makes the triage workflow a no-op."
         },

@@ -33,6 +33,10 @@ export interface StackProfile {
   stack: StackId;
   defaultLayers: string[];
   defaultDeploy: Deploy;
+  /** Pre-commit type-check command. Lands in lefthook.yml, so it must RUN. */
+  typecheck: string;
+  /** Glob of the files the pre-commit validators apply to. */
+  sourceGlob: string;
 }
 
 /**
@@ -67,46 +71,64 @@ const PROFILES: Record<StackId, StackProfile> = {
     stack: "nextjs-serverless",
     defaultLayers: ["routes", "actions", "lib", "db", "integrations"],
     defaultDeploy: "vercel",
+    typecheck: "bunx tsc --noEmit",
+    sourceGlob: "src/**/*.{ts,tsx}",
   },
   nextjs: {
     stack: "nextjs",
     defaultLayers: ["routes", "components", "lib", "integrations"],
     defaultDeploy: "vercel",
+    typecheck: "bunx tsc --noEmit",
+    sourceGlob: "src/**/*.{ts,tsx}",
   },
   "node-cli": {
     stack: "node-cli",
     defaultLayers: ["commands", "lib", "integrations"],
     defaultDeploy: "npm-publish",
+    typecheck: "bunx tsc --noEmit",
+    sourceGlob: "src/**/*.ts",
   },
   "python-fastapi": {
     stack: "python-fastapi",
     defaultLayers: ["routers", "services", "models", "integrations"],
     defaultDeploy: "docker-ghcr",
+    typecheck: "uvx mypy .",
+    sourceGlob: "**/*.py",
   },
   deno: {
     stack: "deno",
     defaultLayers: ["functions", "lib", "integrations"],
     defaultDeploy: "supabase-functions",
+    typecheck: "deno check {staged_files}",
+    sourceGlob: "supabase/functions/**/*.ts",
   },
   go: {
     stack: "go",
     defaultLayers: ["cmd", "internal", "pkg"],
     defaultDeploy: "docker-ghcr",
+    typecheck: "go vet ./...",
+    sourceGlob: "**/*.go",
   },
   rust: {
     stack: "rust",
     defaultLayers: ["bin", "lib", "modules"],
     defaultDeploy: "docker-ghcr",
+    typecheck: "cargo check",
+    sourceGlob: "**/*.rs",
   },
   "static-site": {
     stack: "static-site",
     defaultLayers: ["pages", "assets"],
     defaultDeploy: "static-pages",
+    typecheck: "true",
+    sourceGlob: "**/*.{html,css,js}",
   },
   monorepo: {
     stack: "monorepo",
     defaultLayers: ["packages", "apps", "shared"],
     defaultDeploy: "none",
+    typecheck: "bunx tsc --noEmit",
+    sourceGlob: "**/*.{ts,tsx}",
   },
 };
 
@@ -177,4 +199,15 @@ export function resolveStack(signals: StackSignals): StackProfile {
 
   // Nothing recognized: safest neutral profile.
   return { ...PROFILES["static-site"], defaultDeploy: "none" };
+}
+
+/**
+ * Pre-commit commands for a stack id. `lefthook.yml` executes these verbatim,
+ * so an unknown stack must still yield something that RUNS: a literal
+ * placeholder there breaks every commit in the repo right after install.
+ */
+export function commandsFor(stack: string): { typecheck: string; sourceGlob: string } {
+  const profile = PROFILES[stack as StackId];
+  if (profile) return { typecheck: profile.typecheck, sourceGlob: profile.sourceGlob };
+  return { typecheck: "true", sourceGlob: "**/*" };
 }

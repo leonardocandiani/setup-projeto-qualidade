@@ -1,6 +1,6 @@
 {
   "name": "keepwright",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Set up and continuously keep engineering quality and architecture true in any git repo. Interactive wizard, deterministic scaffolding, multi-agent audits, and AI PR review wired to OAuth.",
   "author": {
     "name": "Leonardo Candiani"

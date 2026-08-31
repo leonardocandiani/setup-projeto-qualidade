@@ -29,6 +29,16 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository == '{{REPO}}'
     steps:
+      - name: Placeholder filled in
+        # This value is filled in by hand after install. Without this check the
+        # workflow runs to the upload step and fails there with an opaque
+        # "path does not exist", minutes later and far from the cause.
+        run: |
+          case "$BUILD_DIR" in
+            *"{{"*) echo "BUILD_DIR is still the literal placeholder. Set it at the top of this file (your build output directory, e.g. dist, build or out)." >&2; exit 1 ;;
+            "")     echo "BUILD_DIR is empty. Set it at the top of this file (your build output directory, e.g. dist, build or out)." >&2; exit 1 ;;
+          esac
+
       - uses: actions/checkout@v5
 
       - uses: actions/setup-node@v4

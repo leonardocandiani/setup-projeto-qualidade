@@ -1,3 +1,5 @@
+# keepwright:managed — installed by /keepwright:setup. Edit freely; the
+# audit looks for this marker to tell this file apart from one you already had.
 name: Claude Mention
 
 # Triggers Claude when someone writes @claude in a PR, issue, review or
@@ -39,8 +41,14 @@ on:
   issues:
     types: [opened, assigned]
 
+# Least privilege. This workflow is publicly triggerable: anyone who can comment
+# on an issue can start it. Its allowlist carries no Edit or Write tool and the
+# prompt says it proposes a diff through a comment rather than pushing, so read
+# access to the code is all it needs. `id-token: write` stays because the
+# claude-code-action token exchange uses it; removing it breaks auth, not the
+# blast radius.
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
   issues: write
   id-token: write
@@ -56,28 +64,44 @@ jobs:
       pr_or_issue: ${{ steps.decide.outputs.pr_or_issue }}
     steps:
       - id: decide
+        # SECURITY — every attacker-controlled string arrives through `env`, never
+        # through `${{ }}` inside `run`. Actions substitutes a `${{ }}` expression
+        # into the script TEXT before bash parses it, so a comment body containing
+        # a quote closes the quoting and the rest of the comment runs as commands.
+        # This job triggers on every issue_comment, before the @claude filter, with
+        # contents: write and possibly a self-hosted runner, so that would be
+        # arbitrary execution on the maintainer's machine by any GitHub user.
+        # `env` values are passed as data and never re-parsed. Same contract the
+        # issue-triage workflow follows.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          REVIEW_BODY: ${{ github.event.review.body }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HAS_OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         run: |
-          set -e
+          set -eu
           HAS_KEY=""
-          if [ -n "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}" ]; then HAS_KEY="1"; fi
+          if [ "$HAS_OAUTH" = "true" ]; then HAS_KEY="1"; fi
 
           BODY=""
-          case "${{ github.event_name }}" in
-            issue_comment)              BODY='${{ github.event.comment.body }}' ;;
-            pull_request_review_comment) BODY='${{ github.event.comment.body }}' ;;
-            pull_request_review)        BODY='${{ github.event.review.body }}' ;;
-            issues)                     BODY='${{ github.event.issue.body }} ${{ github.event.issue.title }}' ;;
+          case "$EVENT_NAME" in
+            issue_comment|pull_request_review_comment) BODY="$COMMENT_BODY" ;;
+            pull_request_review)                       BODY="$REVIEW_BODY" ;;
+            issues)                                    BODY="$ISSUE_TITLE $ISSUE_BODY" ;;
           esac
 
           MENTION=""
-          if echo "$BODY" | grep -qi "@claude"; then MENTION="1"; fi
+          if printf '%s' "$BODY" | grep -qi "@claude"; then MENTION="1"; fi
 
           # Resolve deterministic target: PR > issue (PRs inherit issue.number
-          # on GH; the `||` in the prompt covers both events in one expression).
-          ALVO="${{ github.event.issue.number || github.event.pull_request.number }}"
-          echo "pr_or_issue=$ALVO" >> $GITHUB_OUTPUT
+          # on GH; either event yields exactly one of the two).
+          ALVO="${ISSUE_NUMBER:-$PR_NUMBER}"
+          echo "pr_or_issue=$ALVO" >> "$GITHUB_OUTPUT"
 
           if [ -n "$HAS_KEY" ] && [ -n "$MENTION" ]; then
             echo "go=true" >> $GITHUB_OUTPUT

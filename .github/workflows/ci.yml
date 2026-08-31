@@ -26,7 +26,7 @@ jobs:
 
       - name: Check commands exist
         run: |
-          for c in setup audit review; do
+          for c in setup audit review tidy; do
             test -f "commands/$c.md" || { echo "commands/$c.md missing"; exit 1; }
           done
 
@@ -43,12 +43,112 @@ jobs:
           for r in artifacts grilling-fallback; do
             test -f "skills/overhaul/references/$r.md" || { echo "skills/overhaul/references/$r.md missing"; exit 1; }
           done
+          test -f skills/tidy/SKILL.md || { echo "skills/tidy/SKILL.md missing"; exit 1; }
+          head -1 skills/tidy/SKILL.md | grep -q "^---$" || { echo "tidy SKILL.md missing frontmatter"; exit 1; }
+          grep -q "^name: tidy$" skills/tidy/SKILL.md || { echo "tidy SKILL.md frontmatter name missing"; exit 1; }
+          grep -q "^description:" skills/tidy/SKILL.md || { echo "tidy SKILL.md frontmatter description missing"; exit 1; }
+          test -f skills/tidy/references/artifacts.md || { echo "skills/tidy/references/artifacts.md missing"; exit 1; }
 
       - name: Check orchestration workflows exist
         run: |
           for w in map-brownfield derive-patterns verify-setup; do
             test -f "workflows/$w.js" || { echo "workflows/$w.js missing"; exit 1; }
           done
+
+      - name: Tidy engine runs and holds its contract
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Tidy engine self-check
+        run: |
+          set -e
+
+          # 1. The scanner runs clean on this very repo and emits the fields the
+          #    /keepwright:tidy command reads back.
+          bun scripts/tidy-scan.ts > /tmp/scan.json
+          node -e "
+            const d = JSON.parse(require('fs').readFileSync('/tmp/scan.json','utf8'));
+            for (const k of ['repoPath','totals','byClass','findings','help']) {
+              if (!(k in d)) { console.error('scan output missing ' + k); process.exit(1); }
+            }
+            if (typeof d.totals.trackedFiles !== 'number' || d.totals.trackedFiles < 1) {
+              console.error('scan found no tracked files'); process.exit(1);
+            }
+            for (const f of d.findings) {
+              if (!['quarantine','untrack','review'].includes(f.action)) {
+                console.error('unknown action in finding: ' + f.action); process.exit(1);
+              }
+              if (!f.evidence) { console.error('finding without evidence: ' + f.path); process.exit(1); }
+            }
+            console.log('scan ok: ' + d.totals.findings + ' findings over ' + d.totals.trackedFiles + ' tracked files');
+          "
+
+          # 2. An unknown flag is a usage error and must exit 2, never pass silently.
+          set +e
+          bun scripts/tidy-scan.ts --not-a-flag > /dev/null 2>&1
+          SCAN_CODE=$?
+          bun scripts/tidy-apply.ts --not-a-flag > /dev/null 2>&1
+          APPLY_CODE=$?
+          set -e
+          test "$SCAN_CODE" -eq 2 || { echo "tidy-scan: unknown flag exited $SCAN_CODE, expected 2"; exit 1; }
+          test "$APPLY_CODE" -eq 2 || { echo "tidy-apply: unknown flag exited $APPLY_CODE, expected 2"; exit 1; }
+
+          # 3. The non-destructive contract, enforced against the source itself:
+          #    no filesystem delete API anywhere in the apply engine.
+          if grep -nE 'unlinkSync|rmSync|rmdirSync|rimraf|rm -rf|rm -r ' scripts/tidy-apply.ts; then
+            echo "tidy-apply.ts contains a filesystem delete, which breaks the non-destructive contract"
+            exit 1
+          fi
+          #    the only `rm` it may hand to git is the index-only `rm --cached`.
+          if grep -n '"rm"' scripts/tidy-apply.ts | grep -v -- '--cached'; then
+            echo "tidy-apply.ts calls git rm without --cached, which would delete from the working tree"
+            exit 1
+          fi
+
+          # 4. A plan naming an untracked path is rejected, and writes nothing.
+          echo '{"operations":[{"op":"quarantine","path":"does/not/exist.ts","reason":"x"}]}' > /tmp/bad-plan.json
+          set +e
+          bun scripts/tidy-apply.ts /tmp/bad-plan.json > /dev/null 2>&1
+          REJECT_CODE=$?
+          set -e
+          test "$REJECT_CODE" -eq 1 || { echo "apply engine accepted an untracked path (exit $REJECT_CODE)"; exit 1; }
+
+          # 5. None of the above may have touched the working tree.
+          test -z "$(git status --porcelain)" || {
+            echo "the tidy self-check dirtied the working tree"; git status --porcelain; exit 1;
+          }
+          echo "tidy engine contract holds"
+
+      - name: No untrusted GitHub context interpolated into a shell script
+        run: |
+          set -e
+          # An expression inside `run:` is substituted into the SCRIPT TEXT before
+          # bash parses it, so any attacker-controlled string there is a shell
+          # injection. These fields are free text written by whoever opens an
+          # issue, a comment or a branch, so they must travel through `env:` and
+          # be referenced as "$VAR" instead.
+          FIELDS='github\.event\.(comment|review)\.body|github\.event\.issue\.(body|title)|github\.event\.pull_request\.(body|title)|github\.event\.pull_request\.(base|head)\.ref|github\.event\.workflow_run\.head_branch|github\.event\.inputs\.|github\.head_ref'
+          BAD=0
+          for f in templates/workflows/*.yml.template templates/workflows/deploy/*.yml.template .github/workflows/*.yml; do
+            [ -f "$f" ] || continue
+            HITS=$(awk '
+              /^[[:space:]]*run:[[:space:]]*[|>]/ { inrun = 1; next }
+              /^[[:space:]]*(env|with|if|uses|name|id):/ { inrun = 0 }
+              inrun { print FILENAME ":" FNR ":" $0 }
+            ' "$f" | grep -E "\\$\\{\\{[^}]*($FIELDS)" || true)
+            if [ -n "$HITS" ]; then
+              echo "$HITS"
+              BAD=1
+            fi
+          done
+          if [ "$BAD" -eq 1 ]; then
+            echo ""
+            echo "Untrusted GitHub context interpolated directly into a shell script."
+            echo "Pass it through the step's env: block and reference it as \"\$VAR\"."
+            exit 1
+          fi
+          echo "No untrusted context reaches a shell script directly"
 
       - name: Check README.md exists
         run: test -f README.md
@@ -87,6 +187,7 @@ jobs:
             "templates/workflows/deploy/docker-ghcr.yml.template"
             "templates/workflows/deploy/npm-publish.yml.template"
             "templates/workflows/deploy/static-pages.yml.template"
+            "templates/validators/run-all.sh.template"
             "templates/validators/validate-no-secrets.ts.template"
             "templates/validators/validate-claude-md-sync.ts.template"
             "templates/validators/validate-epistemic-hierarchy.ts.template"
@@ -118,23 +219,165 @@ jobs:
       - name: No secrets committed
         run: |
           set -e
-          PATTERNS=(
-            "pk_live_[A-Za-z0-9]{20,}"
-            "sk_live_[A-Za-z0-9]{20,}"
-            "sbp_[a-f0-9]{40}"
-            "ghp_[A-Za-z0-9]{36}"
-            "sk-ant-api[0-9]+-[A-Za-z0-9_-]+"
-            "sk-ant-oat01-[A-Za-z0-9_-]+"
-            "EAA[A-Za-z0-9]{60,}"
-          )
-          FOUND=0
-          for pat in "${PATTERNS[@]}"; do
-            MATCHES=$(grep -rEn "$pat" --include="*.md" --include="*.ts" --include="*.yml" --include="*.json" --include="*.sh" --include="*.template" --exclude-dir=node_modules --exclude-dir=.git . || true)
-            if [ -n "$MATCHES" ]; then
-              echo "Secret pattern matched: $pat"
-              echo "$MATCHES"
-              FOUND=$((FOUND + 1))
-            fi
-          done
-          if [ $FOUND -gt 0 ]; then exit 1; fi
+          # Same single source the engine and the generated workflows read, so
+          # this repo is held to the exact list it ships.
+          SRC=templates/validators/secret-patterns.ere.template
+          test -f "$SRC" || { echo "$SRC missing"; exit 1; }
+          # grep -f reads every line as a pattern: a blank line matches
+          # everything and a comment can break the parser. Strip both.
+          PATTERNS="${RUNNER_TEMP:-/tmp}/secret-patterns.ere"
+          grep -vE '^[[:space:]]*(#|$)' "$SRC" > "$PATTERNS"
+
+          MATCHES=$(grep -rEn -f "$PATTERNS" \
+            --include="*.md" --include="*.ts" --include="*.yml" --include="*.json" \
+            --include="*.sh" --include="*.template" \
+            --exclude-dir=node_modules --exclude-dir=.git \
+            --exclude="secret-patterns.ere.template" . || true)
+          if [ -n "$MATCHES" ]; then
+            echo "Credential shape found in the repo:"
+            echo "$MATCHES"
+            exit 1
+          fi
+
+          # A real authorship trailer, anchored so prose documenting the string
+          # does not trip it.
+          TRAILERS=$(grep -rEn "^\+?Co-Authored-By: Claude" \
+            --include="*.md" --include="*.ts" --include="*.yml" --include="*.template" \
+            --exclude-dir=node_modules --exclude-dir=.git . || true)
+          if [ -n "$TRAILERS" ]; then
+            echo "AI authorship trailer found:"; echo "$TRAILERS"; exit 1
+          fi
           echo "No secrets detected"
+
+      - name: The secret pattern list has exactly one source
+        run: |
+          set -e
+          # The invariant is that each consumer READS the shared file and carries
+          # no list of its own. Do not assert an exact command string here: the
+          # first version of this check pinned one, and went stale the moment the
+          # workflows started stripping comments before grepping.
+          for f in templates/workflows/pr-auto-review.yml.template \
+                   templates/workflows/pr-auto-merge.yml.template; do
+            grep -q 'scripts/validators/secret-patterns\.ere' "$f" \
+              || { echo "$f does not read the shared pattern file"; exit 1; }
+            grep -q 'grep -[a-zA-Z]* *-f' "$f" \
+              || { echo "$f names the pattern file but never greps with -f"; exit 1; }
+          done
+
+          # No workflow may carry a credential prefix inline any more.
+          INLINE=$(grep -nE "sk-ant-\(api\|oat\)|pk_live_\[|sk_live_\[|sbp_\[|ghp_\[" \
+            templates/workflows/*.template templates/workflows/deploy/*.template || true)
+          if [ -n "$INLINE" ]; then
+            echo "an inline credential pattern came back into a workflow:"
+            echo "$INLINE"; exit 1
+          fi
+          echo "one source, all consumers"
+
+  install:
+    name: Install into a scratch repo and assert the result
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Apply into greenfield and brownfield repos
+        run: |
+          set -e
+          PLUGIN="$PWD"
+          cat > /tmp/config.json <<'JSON'
+          { "project": "demo", "repo": "owner/demo", "stack": "nextjs",
+            "deploy": "none", "runner": "github", "auth": "oauth" }
+          JSON
+
+          for D in green brown; do
+            mkdir -p "/tmp/$D" && cd "/tmp/$D"
+            git init -q .
+            git config user.email ci@example.com
+            git config user.name CI
+            echo '{"name":"demo"}' > package.json
+            cd "$PLUGIN"
+          done
+          # The brownfield repo brings its own constitution, like any real project.
+          printf '# demo\n\nOur own constitution.\n' > /tmp/brown/CLAUDE.md
+
+          bun scripts/apply.ts /tmp/config.json --repo-path /tmp/green > /tmp/green.json
+          bun scripts/apply.ts /tmp/config.json --repo-path /tmp/brown > /tmp/brown.json
+
+      - name: Installed files must be runnable, not literal placeholders
+        run: |
+          set -e
+          # lefthook.yml and every shell script are EXECUTED. A leftover
+          # {{TOKEN}} there breaks the first commit in the repo.
+          FOUND=$(grep -rn '{{[A-Z][A-Z0-9_]*}}' /tmp/green/lefthook.yml /tmp/green/scripts 2>/dev/null || true)
+          if [ -n "$FOUND" ]; then
+            echo "unresolved placeholder in an executable installed file:"
+            echo "$FOUND"
+            exit 1
+          fi
+          # Everything the hooks call has to exist.
+          for ref in $(grep -oE 'scripts/validators/[a-zA-Z0-9._-]+' /tmp/green/lefthook.yml | sort -u); do
+            test -f "/tmp/green/$ref" || { echo "lefthook calls $ref, which was never installed"; exit 1; }
+          done
+          bash -n /tmp/green/scripts/validators/run-all.sh
+          echo "installed hooks reference only files that exist"
+
+      - name: Derived patterns must reach the document the reviewer reads
+        run: |
+          set -e
+          # REVIEW.md is what /pr-review loads as the standard. A literal
+          # {{DERIVED_*}} there means the repo is reviewed against a generic
+          # ideal instead of its own conventions, which is the whole promise.
+          if grep -n '{{DERIVED' /tmp/green/REVIEW.md; then
+            echo "derived-pattern placeholder survived into the installed REVIEW.md"
+            exit 1
+          fi
+          grep -q "3.4. This repo's own derived patterns" /tmp/green/REVIEW.md
+          echo "REVIEW.md carries the derived-pattern section, resolved"
+
+      - name: A brownfield repo must not get a red pipeline on day one
+        run: |
+          set -e
+          cd /tmp/brown
+          # The same run that installs the rules installs the validator that
+          # fails when a rule has no pointer, so it has to pass right away.
+          bun scripts/validators/validate-claude-md-sync.ts
+
+      - name: The installed secret scanner actually blocks a credential
+        run: |
+          set -e
+          cd /tmp/green
+          test -f scripts/validators/secret-patterns.ere \
+            || { echo "the shared pattern file was not installed"; exit 1; }
+          # A fake value with a real shape. Built at runtime so this line is not
+          # itself a credential-shaped string in the repo.
+          printf 'const k = "sbp_%s";\n' "$(printf 'a%.0s' $(seq 1 40))" > planted.ts
+          if bun scripts/validators/validate-no-secrets.ts > /dev/null 2>&1; then
+            echo "the installed validator passed a planted credential"; exit 1
+          fi
+          rm planted.ts
+          bun scripts/validators/validate-no-secrets.ts > /dev/null
+          # A scanner with no patterns must fail, never pass everything.
+          cp scripts/validators/secret-patterns.ere /tmp/patterns.bak
+          echo '# emptied' > scripts/validators/secret-patterns.ere
+          if bun scripts/validators/validate-no-secrets.ts > /dev/null 2>&1; then
+            echo "an empty pattern list passed silently"; exit 1
+          fi
+          cp /tmp/patterns.bak scripts/validators/secret-patterns.ere
+          echo "the installed scanner blocks a planted credential and refuses to run empty"
+
+      - name: Applying twice changes nothing
+        run: |
+          set -e
+          PLUGIN="$GITHUB_WORKSPACE"
+          BEFORE=$(cd /tmp/brown && md5sum CLAUDE.md | cut -d' ' -f1)
+          cd "$PLUGIN"
+          bun scripts/apply.ts /tmp/config.json --repo-path /tmp/brown > /tmp/brown2.json
+          CREATED=$(node -e "process.stdout.write(String(JSON.parse(require('fs').readFileSync('/tmp/brown2.json','utf8')).created.length))")
+          test "$CREATED" -eq 0 || { echo "second apply created $CREATED file(s); it must be a no-op"; exit 1; }
+          AFTER=$(cd /tmp/brown && md5sum CLAUDE.md | cut -d' ' -f1)
+          test "$BEFORE" = "$AFTER" || { echo "second apply modified CLAUDE.md"; exit 1; }
+          SECTIONS=$(grep -c '^## Rules index' /tmp/brown/CLAUDE.md || true)
+          test "$SECTIONS" -le 1 || { echo "the rules index was appended $SECTIONS times"; exit 1; }
+          echo "apply is idempotent"

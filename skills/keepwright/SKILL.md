@@ -38,14 +38,25 @@ The split is deliberate: **mechanical → script, judgment → LLM/workflow.**
 - **`/keepwright:review`** — reviews the current state against the repo's own
   derived patterns + the keepwright invariants; escalates to `/code-review ultra`
   / `/security-review` for depth.
+- **`/keepwright:tidy`** — non-destructive cleanup of a cluttered repo: scan →
+  charter → plan → apply → report → catalysis. It proves what is junk,
+  duplicated, orphaned or misplaced from an import graph plus git history, then
+  quarantines it into `.attic/` instead of deleting it. Every operation is
+  reversible from a manifest. See the `tidy` skill.
 
 ## Config — `keepwright.config.json`
 
 Produced by detection + the wizard, consumed by `apply.ts`. Conforms to
 `schema/keepwright.config.schema.json`: `project`, `repo`, `maintainer`,
-`language`, `mode`, `stack`, `layers[]`, `deploy`, `runner`, `auth`,
-`criticalFiles[]`, `customValidators[]`, `derivedPatterns{design[],voice[]}`.
-Versioned in the repo — the setup becomes reproducible and reviewable.
+`language`, `stack`, `layers[]`, `deploy`, `runner`, `auth`, `criticalFiles[]`,
+`issues{triage,model}`, `derivedPatterns{design[],voice[]}`. Versioned in the
+repo, so the setup is reproducible and reviewable.
+
+The config describes the REPO, never the action being performed on it. `--mode`
+stays a flag on `/keepwright:setup` because it picks a conversation path; it is
+not repo state and does not belong in a versioned file. A project-specific
+validator needs no declaration either: drop a `validate-*.ts` in
+`scripts/validators/` and `run-all.sh` picks it up in both the hook and CI.
 
 ## What gets installed (the architecture)
 

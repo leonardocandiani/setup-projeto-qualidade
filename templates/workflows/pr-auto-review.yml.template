@@ -1,3 +1,5 @@
+# keepwright:managed — installed by /keepwright:setup. Edit freely; the
+# audit looks for this marker to tell this file apart from one you already had.
 name: PR Auto-Review
 
 on:
@@ -67,13 +69,26 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           git fetch origin "$BASE_REF"
-          # Skip self-referencing files: workflows and rules mention detection
-          # patterns as educational reference, not as real secrets.
-          BANNED=$(git diff "origin/$BASE_REF...HEAD" \
-            -- '*.ts' '*.md' '*.json' ':!.github/workflows/*.yml' ':!.claude/rules/*.md' \
-            | grep -E "^\+" \
-            | grep -E "Claude <noreply@anthropic|Co-Authored-By: Claude|sk-ant-(api|oat)[0-9]{2}-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}|pk_live_[A-Za-z0-9]{20,}|sk_live_[A-Za-z0-9]{20,}" \
-            | head -5)
+          # Credential shapes come from the single source every check reads, so
+          # this grep cannot drift from the engine's scan the way the old inline
+          # copy did. Files that document the patterns are excluded: they name
+          # the shapes on purpose and are not leaking anything.
+          # `grep -f` treats EVERY line of a pattern file as a pattern, including
+          # blank lines (which match everything) and comments (which can break the
+          # parser outright). The shared file is documented for the humans who
+          # edit it, so strip those first. This is the portable form: no process
+          # substitution, works on GNU and BSD grep alike.
+          PAT="${RUNNER_TEMP:-/tmp}/secret-patterns.ere"
+          grep -vE '^[[:space:]]*(#|$)' scripts/validators/secret-patterns.ere > "$PAT"
+
+          ADDED=$(git diff "origin/$BASE_REF...HEAD" \
+            -- '*.ts' '*.md' '*.json' ':!.github/workflows/*.yml' ':!.claude/rules/*.md' ':!REVIEW.md' ':!scripts/validators/*' \
+            | grep -E "^\+" || true)
+          SECRETS=$(printf '%s' "$ADDED" | grep -E -f "$PAT" | head -5 || true)
+          # Authorship is a git trailer, so it only counts at the start of an
+          # added line. Unanchored, it matched any prose mentioning the string.
+          AUTHORSHIP=$(printf '%s' "$ADDED" | grep -E "^\+(Co-Authored-By: Claude|Claude <noreply@anthropic)" | head -5 || true)
+          BANNED=$(printf '%s\n%s' "$SECRETS" "$AUTHORSHIP" | grep -v '^$' || true)
           if [ -n "$BANNED" ]; then
             gh pr comment "$PR_NUMBER" --body "🚨 **Banned terms detected** in the diff (real Claude authorship or secret shape). See \`.claude/rules/01-invariants.md\` §3 and §6."
             exit 1
@@ -87,8 +102,9 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
-          COMMIT_MESSAGES=$(git log --format='%B' origin/${{ github.event.pull_request.base.ref }}..HEAD)
+          COMMIT_MESSAGES=$(git log --format='%B' "origin/$BASE_REF...HEAD")
           export COMMIT_MESSAGES
           bun run scripts/validators/validate-epistemic-hierarchy.ts
 
@@ -111,8 +127,13 @@ jobs:
       has_key: ${{ steps.check.outputs.has_key }}
     steps:
       - id: check
+        # The secret is tested as a boolean through env, so its value never
+        # lands in the script text. Actions masks it in the log either way, but
+        # a token carrying a shell metacharacter would break the test itself.
+        env:
+          HAS_OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         run: |
-          if [ -n "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}" ]; then
+          if [ "$HAS_OAUTH" = "true" ]; then
             echo "has_key=true" >> $GITHUB_OUTPUT
           else
             echo "has_key=false" >> $GITHUB_OUTPUT
