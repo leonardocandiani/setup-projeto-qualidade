@@ -252,13 +252,18 @@ jobs:
       - name: The secret pattern list has exactly one source
         run: |
           set -e
-          # Every consumer must read the file. A reintroduced inline list is the
-          # drift that produced the banned-terms false positive, so it fails here.
+          # The invariant is that each consumer READS the shared file and carries
+          # no list of its own. Do not assert an exact command string here: the
+          # first version of this check pinned one, and went stale the moment the
+          # workflows started stripping comments before grepping.
           for f in templates/workflows/pr-auto-review.yml.template \
                    templates/workflows/pr-auto-merge.yml.template; do
-            grep -q 'grep -[qE]*E* *-f scripts/validators/secret-patterns.ere\|grep -E -f scripts/validators/secret-patterns.ere\|grep -qE -f scripts/validators/secret-patterns.ere' "$f" \
+            grep -q 'scripts/validators/secret-patterns\.ere' "$f" \
               || { echo "$f does not read the shared pattern file"; exit 1; }
+            grep -q 'grep -[a-zA-Z]* *-f' "$f" \
+              || { echo "$f names the pattern file but never greps with -f"; exit 1; }
           done
+
           # No workflow may carry a credential prefix inline any more.
           INLINE=$(grep -nE "sk-ant-\(api\|oat\)|pk_live_\[|sk_live_\[|sbp_\[|ghp_\[" \
             templates/workflows/*.template templates/workflows/deploy/*.template || true)
