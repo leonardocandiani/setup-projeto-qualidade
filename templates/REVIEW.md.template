@@ -55,7 +55,22 @@ Catalogued after {{INCIDENT_DATE}}. {{ROOT_CAUSE_SHORT}}.
 - `mergeStateStatus: CLEAN` required
 - The `scripts/gh-pr-merge-safe.sh` wrapper is the only path
 
-### 3.4. Epistemic hierarchy
+### 3.4. This repo's own derived patterns
+
+Mined from the code and prose of THIS repo by `/keepwright:derive-patterns`, not
+from a generic ideal. A diff that breaks one of these is a caveat by default, and
+critical when the pattern guards a boundary (auth, money, message sending, data
+loss). Say which pattern was broken, never just "inconsistent style".
+
+**Design**
+
+{{DERIVED_DESIGN}}
+
+**Writing voice**
+
+{{DERIVED_VOICE}}
+
+### 3.5. Epistemic hierarchy
 
 P1 (symptom reported by the maintainer) > P2 (prod logs) > P3 (DB state) > P4 (code) > P5 (abstract audit). A "ZERO bugs" verdict without surgical reproduction of the symptom via 5 empirical sources = investigation FAILURE, NOT a valid verdict.
 
@@ -208,7 +223,7 @@ A descriptive doc treated as a validated implementation is the most dangerous fa
 
 ## 14. Cross references
 
-- `CLAUDE.md` root — constitution + pointers to the 7 rules
+- `CLAUDE.md` root — constitution + a pointer to every rule under `.claude/rules/` (`validate-claude-md-sync` is the authority on that set, so no count is repeated here to rot)
 - `.claude/rules/01-invariants.md` — numbered inviolable invariants
 - `.claude/rules/02-pipeline-equalization.md` — the project's C1-CN layers
 - `.claude/rules/03-epistemic-hierarchy.md` — detailed P1-P5 protocol

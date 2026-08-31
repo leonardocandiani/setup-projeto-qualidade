@@ -1,3 +1,5 @@
+# keepwright:managed — installed by /keepwright:setup. Edit freely; the
+# audit looks for this marker to tell this file apart from one you already had.
 name: PR Auto-Merge (Tier S)
 
 # Auto-approves + auto-merges ONLY Tier S PRs (inert content):
@@ -22,12 +24,25 @@ jobs:
       github.event.workflow_run.event == 'pull_request'
     runs-on: ubuntu-latest
     steps:
+      # Only the shared pattern file, so the gate reads the same secret shapes
+      # as every other check instead of carrying its own copy. A sparse checkout
+      # keeps this job as light as it was.
+      - name: Fetch the shared secret patterns
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts/validators/secret-patterns.ere
+          sparse-checkout-cone-mode: false
+
       - name: Resolve PR
         id: pr
+        # SECURITY: a branch name is not a safe literal. Git allows `;`, `$`,
+        # `&` and quotes in a ref, and a `${{ }}` expression is substituted into
+        # the script text before bash parses it, so a crafted branch name would
+        # break out of the quoting. It travels through env instead.
         run: |
-          set -e
+          set -eu
           PR=$(gh pr list -R "$GITHUB_REPOSITORY" \
-            --head "${{ github.event.workflow_run.head_branch }}" \
+            --head "$HEAD_BRANCH" \
             --state open --json number,isDraft,author -q '.[0]')
           if [ -z "$PR" ] || [ "$PR" = "null" ]; then
             echo "skip=1" >> $GITHUB_OUTPUT; exit 0
@@ -37,6 +52,7 @@ jobs:
           echo "author=$(echo "$PR" | jq -r .author.login)" >> $GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
 
       - name: Gate (allowlist + draft + author + secrets)
         id: gate
@@ -47,9 +63,19 @@ jobs:
           if [ "${{ steps.pr.outputs.draft }}" = "true" ]; then
             echo "Draft, skip."; echo "ok=0" >> $GITHUB_OUTPUT; exit 0
           fi
-          case "${{ steps.pr.outputs.author }}" in
-            {{REPO_OWNER}}|app/github-actions) ;;
-            *) echo "Author outside the allowlist."
+          # Authors whose PRs may auto-merge when the diff is Tier S.
+          #
+          # Two bugs used to live on this line. The bot's login is
+          # `github-actions[bot]`, never `app/github-actions`, so that
+          # alternative matched nothing; and `[bot]` unquoted in a case pattern
+          # is a bracket expression matching one of b, o, t, so it has to be
+          # quoted to compare literally. {{REPO_OWNER}} is the owner, which in
+          # an org is the org name and not any human's login, so the maintainer
+          # login is listed too. Add your co-maintainers here.
+          AUTHOR="${{ steps.pr.outputs.author }}"
+          case "$AUTHOR" in
+            "{{REPO_OWNER}}"|"{{MAINTAINER}}"|"github-actions[bot]") ;;
+            *) echo "Author $AUTHOR is outside the auto-merge allowlist; the PR goes through the human flow."
                echo "ok=0" >> $GITHUB_OUTPUT; exit 0;;
           esac
           BAD=0
@@ -64,8 +90,15 @@ jobs:
             echo "Diff touches Tier H. Human flow."
             echo "ok=0" >> $GITHUB_OUTPUT; exit 0
           fi
+          # `grep -f` treats EVERY line of a pattern file as a pattern, including
+          # blank lines (which match everything) and comments (which can break the
+          # parser outright). The shared file is documented for the humans who
+          # edit it, so strip those first. This is the portable form: no process
+          # substitution, works on GNU and BSD grep alike.
+          PAT="${RUNNER_TEMP:-/tmp}/secret-patterns.ere"
+          grep -vE '^[[:space:]]*(#|$)' scripts/validators/secret-patterns.ere > "$PAT"
           if gh pr diff "$N" -R "$GITHUB_REPOSITORY" \
-             | grep -qE 'sk-ant-|pk_live_|sbp_|ghp_|EAA[A-Za-z0-9]{60,}'; then
+             | grep -qE -f "$PAT"; then
             echo "Secret in diff. Blocked."
             echo "ok=0" >> $GITHUB_OUTPUT; exit 0
           fi
@@ -75,11 +108,22 @@ jobs:
 
       - name: Approve + squash merge
         if: steps.gate.outputs.ok == '1'
+        # KNOWN LIMIT of the approve, do not treat it as the gate. GitHub refuses
+        # `--approve` on a PR the same identity authored ("Can not approve your
+        # own pull request"), and a review left by GITHUB_TOKEN does not count
+        # toward a required-approvals branch protection rule. So the approve is
+        # a courtesy annotation, not the thing that makes the merge legal: what
+        # actually gates this workflow is the Tier S file allowlist, the author
+        # allowlist, the secret grep and a green CI, all checked above. The
+        # approve is allowed to fail without taking the merge down with it, and
+        # if the merge itself is blocked, that block is the correct outcome.
         run: |
           set -e
           N=${{ steps.pr.outputs.number }}
-          gh pr review "$N" -R "$GITHUB_REPOSITORY" --approve \
-            --body "Tier S (inert content). CI green, no secret, trusted author. Auto-approved (07-safe-merge.md)."
+          if ! gh pr review "$N" -R "$GITHUB_REPOSITORY" --approve \
+                 --body "Tier S (inert content). CI green, no secret, trusted author. Auto-approved (07-safe-merge.md)."; then
+            echo "note: the approve was refused (self-authored PR, or a token that cannot review). Continuing to the merge, which branch protection still governs."
+          fi
           gh pr merge "$N" -R "$GITHUB_REPOSITORY" --squash --delete-branch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

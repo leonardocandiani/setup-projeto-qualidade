@@ -20,6 +20,13 @@ Raw arguments: `$ARGUMENTS`
 
 Treat the JSON above as **defaults**, not the final config.
 
+**Stop here if `isGitRepo` is `false`.** Say so plainly and offer `git init`.
+Everything below assumes git: the worker agent is installed with
+`isolation: worktree` and cannot spawn without a repository, the hooks have
+nothing to attach to, and the workflows have nothing to run on. Installing into
+a directory that is not a repo produces a setup that looks complete and works
+nowhere.
+
 ## Steps
 
 1. **Map (large/existing repos only).** If the repo is non-trivial — lots of
@@ -41,8 +48,11 @@ Treat the JSON above as **defaults**, not the final config.
 
 3. **Write config.** Write the finalized config to `keepwright.config.json` at the
    repo root, conforming to `${CLAUDE_PLUGIN_ROOT}/schema/keepwright.config.schema.json`.
-   Set `language` from the user's `~/.claude` language so GENERATED artifacts match
-   their language — the plugin's own text stays English.
+   Set `language` so GENERATED artifacts match the maintainer's language, while
+   the plugin's own text stays English. Detection reads `language` from
+   `~/.claude/settings.json`, a field Claude Code does not populate by default,
+   so it usually comes back empty: when it does, ASK, rather than silently
+   defaulting to English in a repo whose docs are written in another language.
 
 4. **Apply (deterministic, creates files + git).** Confirm with the user first
    (this writes the constitution, rules, workflows, validators, hooks). Then run:
@@ -74,6 +84,8 @@ Treat the JSON above as **defaults**, not the final config.
 
 ## Rules of engagement
 
+- **git is a precondition, not a detail.** Never run the apply step in a
+  directory where `isGitRepo` is false.
 - **English** for everything keepwright outputs about itself. **Generated
   artifacts** (CLAUDE.md prose, rule docs, messages) follow the user's `language`.
 - Be **decisive** on technical defaults; only ask the user about genuine choices.

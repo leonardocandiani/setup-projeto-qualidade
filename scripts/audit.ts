@@ -36,6 +36,11 @@ function listTemplateNames(subdir: string, suffix = ".template"): string[] {
     .map((e) => e.name.replace(/\.template$/, ""));
 }
 
+/** Marker the generated workflows and hooks carry, so the audit can tell a
+ *  keepwright-installed file from one the repo already had. */
+const OWNERSHIP_MARKER = "keepwright:managed";
+const MARKED_PATHS = [join(".github", "workflows"), "lefthook.yml"];
+
 function readSafe(path: string): string | null {
   try {
     return readFileSync(path, "utf-8");
@@ -86,8 +91,23 @@ function main(): void {
   const missing: string[] = [];
 
   for (const rel of expectedPaths()) {
-    if (existsSync(join(root, rel))) present.push(rel);
-    else missing.push(rel);
+    const abs = join(root, rel);
+    if (!existsSync(abs)) {
+      missing.push(rel);
+      continue;
+    }
+    // A path existing is not the same as keepwright owning it. A repo that
+    // already had its own `.github/workflows/ci.yml` used to count as covered,
+    // reporting a green coverage for a pipeline that runs none of these checks.
+    // Generated workflows and hooks carry a marker, so the audit can tell the
+    // difference; everything else is judged by presence, as before.
+    if (MARKED_PATHS.some((p) => rel === p || rel.startsWith(p))) {
+      const text = readSafe(abs) ?? "";
+      if (text.includes(OWNERSHIP_MARKER)) present.push(rel);
+      else missing.push(`${rel} (exists, but is not the keepwright one)`);
+      continue;
+    }
+    present.push(rel);
   }
 
   // CLAUDE.md must point to every installed rule. A rule present but not

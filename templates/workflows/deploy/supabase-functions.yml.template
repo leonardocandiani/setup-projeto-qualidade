@@ -33,6 +33,16 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository == '{{REPO}}'
     steps:
+      - name: Placeholder filled in
+        # This value is filled in by hand after install. Without this check the
+        # workflow runs all the way to `supabase functions deploy` and fails
+        # there against a nonexistent project, far from the actual cause.
+        run: |
+          case "$SUPABASE_PROJECT_REF" in
+            *"{{"*) echo "SUPABASE_PROJECT_REF is still the literal placeholder. Set it at the top of this file (your Supabase project ref, from the dashboard URL)." >&2; exit 1 ;;
+            "")     echo "SUPABASE_PROJECT_REF is empty. Set it at the top of this file (your Supabase project ref, from the dashboard URL)." >&2; exit 1 ;;
+          esac
+
       - uses: actions/checkout@v5
         with: { fetch-depth: 2 }
 
@@ -46,10 +56,20 @@ jobs:
 
       - name: Detect changed functions
         id: changed
+        # SECURITY: the dispatch input is free text. It travels through env so
+        # Actions never substitutes it into the script text, and it is validated
+        # before it reaches a command line.
+        env:
+          FUNCTION_INPUT: ${{ github.event.inputs.function }}
         run: |
-          set -e
-          if [ "${{ github.event.inputs.function }}" != "" ]; then
-            echo "fns=${{ github.event.inputs.function }}" >> $GITHUB_OUTPUT
+          set -eu
+          if [ -n "${FUNCTION_INPUT:-}" ]; then
+            case "$FUNCTION_INPUT" in
+              *[!a-zA-Z0-9_-]*)
+                echo "invalid function name: only letters, digits, _ and - are allowed" >&2
+                exit 1 ;;
+            esac
+            echo "fns=$FUNCTION_INPUT" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} \

@@ -14,6 +14,14 @@ validators, and git hooks — detecting your stack and adapting. After setup it
 keeps maintaining: it audits the repo and uses multi-agent workflows to derive
 your design and writing-voice patterns, then turns them into rules and validators.
 
+## Requirements
+
+A git repository, and `bun` (or Node 18+ with `npx tsx`) for the engine and the
+validators. The scaffolded hooks and helper scripts are bash, and
+`setup-oauth-secret.sh` reads the macOS Keychain, so **macOS and Linux are the
+supported hosts**; on Windows, use WSL. The generated GitHub Actions run on
+`ubuntu-latest` by default and do not depend on your machine.
+
 ## Install
 
 Run each `/plugin` command on its own — don't paste both at once.
@@ -45,6 +53,7 @@ Loads keepwright's commands, skills, and agents into the current session — no 
 | `/keepwright:setup` | Interactive wizard. Detects the stack and installs the full architecture. |
 | `/keepwright:audit` | Checks integration coverage of an existing repo against the architecture. |
 | `/keepwright:review` | Compares repo state against the patterns derived from your code and docs. |
+| `/keepwright:tidy` | Non-destructive cleanup of a cluttered repo. Proves what is junk, duplicated, orphaned or misplaced through an import graph and git history, then quarantines it into `.attic/` instead of deleting it. Every operation is reversible from a manifest, and the whole run is documented under `.keepwright/tidy/`. |
 | `/keepwright:overhaul` | Full-repo overhaul orchestrator: parallel recon, a grilling interview, architecture by a frontier model, execution delegated to cheaper models, lessons catalyzed into rules. Every phase emits an artifact in `.overhaul/`, so work resumes across sessions and models. Use it to refactor, modernize, or clean up an existing repo end to end. |
 
 ## Workflows
@@ -59,8 +68,31 @@ Multi-agent orchestration the commands run under the hood — each fans out para
 
 ## Skills & agents
 
-- **Skills** — `keepwright` (the methodology behind the wizard), `pr-review` (the review procedure the CI calls as `/pr-review #N`), and `overhaul` (the full-repo overhaul orchestrator: recon → grilling → architect specs → delegated execution → catalysis, with artifacts under `.overhaul/`).
+- **Skills** — `keepwright` (the methodology behind the wizard), `pr-review` (the review procedure the CI calls as `/pr-review #N`), `tidy` (non-destructive repo cleanup: scan → charter → plan → apply → report → catalysis, with artifacts under `.keepwright/tidy/`), and `overhaul` (the full-repo overhaul orchestrator: recon → grilling → architect specs → delegated execution → catalysis, with artifacts under `.overhaul/`).
 - **Agents** — `design-auditor` and `voice-auditor`: read-only auditors that inspect the repo's design and writing-voice dimensions.
+
+## Cleaning without deleting
+
+`/keepwright:tidy` is the answer to a repo that has silently filled up with
+backup files, committed build output, byte-identical duplicates, modules nothing
+imports any more, and a root directory nobody can read.
+
+It never deletes. The engine knows exactly three operations, and none of them
+destroys bytes: `quarantine` moves a file into `.attic/<date>/` with its original
+path preserved, `untrack` drops a path from the index while the file stays on
+disk, and `move` relocates a file. It refuses to run on the default branch or on
+a dirty tree, and it writes a `MANIFEST.json` holding the exact inverse of every
+operation, so `--undo <manifest> --apply` puts the repo back byte for byte.
+
+What makes it more than a filename heuristic is the evidence. `tidy-scan.ts`
+builds an import graph over the repo's own sources and walks it from the real
+entry points (framework routes with or without `src/`, config and test files,
+edge functions, anything with a shebang, anything `package.json` or a CI workflow
+executes), then combines that with git history and a textual mention sweep. A
+file is only called an orphan when no entry point reaches it, nothing imports it,
+and no tracked file even names it. Everything else is reported as a question, not
+an action. The scanner is deliberately biased toward calling things used: a false
+"still in use" costs a line of output, a false "unused" costs someone their code.
 
 ## Three layers
 

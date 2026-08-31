@@ -5,6 +5,265 @@ All notable changes to this project are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [SemVer](https://semver.org/).
 
+## [2.3.0] — 2026-08-31
+
+### Added
+
+- **New command `/keepwright:tidy` and its `tidy` skill** — non-destructive
+  cleanup for repos that have accumulated junk, scratch files, duplicates, dead
+  modules and misplaced folders. The contract is that nothing is ever deleted:
+  a file that leaves its place is moved into `.attic/<date>/` with its original
+  path preserved, a file that should not be in git is untracked and stays on
+  disk, and every run is reversible from a manifest.
+- **`scripts/tidy-scan.ts`** — a read-only scanner that produces evidence rather
+  than opinions. It classifies findings as junk, gitignore-gap, secret-risk,
+  scratch, empty, duplicate, orphan, unreferenced-code, heavy, root-clutter and
+  dead-script, and attaches a confidence plus the concrete evidence to each one.
+  `high` means a mechanical proof (identical SHA-256, git itself reporting a
+  tracked path as ignored, a zero-byte file, a `package.json` script pointing at
+  a missing file, a source file that no entry point reaches and nothing mentions).
+- **`scripts/lib/graph.ts`** — module reachability over the repo's own sources.
+  It resolves relative imports, `tsconfig`/`jsconfig` path aliases and Python
+  dotted modules, then walks from the real entry points: Next.js `app/` and
+  `pages/` routes with or without the `src/` layout, `middleware`,
+  `instrumentation`, config and test files, `conftest.py`, Supabase edge
+  functions, anything carrying a shebang, anything named in `package.json`
+  (`main`, `module`, `bin`, `exports`, or inside a script command), and anything
+  a CI workflow, Dockerfile, Makefile, lefthook config or shell script executes
+  by path. Anything it cannot resolve is treated as reachable, so the graph errs
+  toward calling files used.
+- **`scripts/lib/gitx.ts`** — time-boxed, read-only git helpers. A history walk
+  that fails or times out degrades into a declared partial result instead of
+  silently reporting "never touched".
+- **`scripts/tidy-apply.ts`** — the only part of tidy that writes, and it has no
+  delete path at all. It knows `git mv`, `git rm --cached` and a `.gitignore`
+  append; it refuses a dirty tree, the default branch, path traversal, protected
+  and sacred paths, duplicated operands, unknown operation kinds and operations
+  with no stated reason, rejecting the whole plan and writing nothing when any
+  of those fire. Dry run is the default. `--undo <manifest> --apply` replays the
+  inverse of every operation, down to removing the `.gitignore` line the run
+  appended.
+- **Artifact flow inspired by spec-driven development** — five phases, each
+  ending in a committed file under `.keepwright/tidy/<date>/`: `INVENTORY.md`,
+  `TIDY-CHARTER.md` (with `[NEEDS DECISION: ...]` markers that gate the next
+  phase), `plan.json` plus `TIDY-PLAN.md`, `BASELINE.md`, `MANIFEST.json` and
+  `REPORT.md`. Templates live in `skills/tidy/references/artifacts.md`.
+- **CI enforces the non-destructive contract** — the pipeline greps
+  `tidy-apply.ts` for any filesystem delete or a `git rm` without `--cached`,
+  asserts unknown flags exit 2, asserts a plan naming an untracked path is
+  rejected, and asserts none of it dirties the working tree.
+
+- **CI now installs the plugin for real and asserts the outcome.** A new
+  `install` job applies the engine into a scratch greenfield repo and a scratch
+  brownfield repo that already has its own `CLAUDE.md`, then fails if any
+  executable installed file still carries a literal placeholder, if a hook
+  references a file that was never installed, if `run-all.sh` is not valid bash,
+  if the brownfield repo does not pass the equalization validator immediately,
+  or if applying a second time creates a file, modifies `CLAUDE.md`, or appends
+  the rules index twice.
+
+### Security
+
+- **Shell injection in `claude-mention.yml.template` (critical).** The guard step
+  interpolated `${{ github.event.comment.body }}` and the issue body and title
+  directly into a `run:` script inside single quotes. GitHub Actions substitutes
+  an expression into the script TEXT before bash parses it, so a comment
+  containing a quote closed the quoting and the rest of the comment ran as
+  commands. The step fires on every `issue_comment.created`, before the
+  `@claude` filter, which lives inside the same already-substituted script and
+  therefore offered no protection. With `contents: write`, `id-token: write` and
+  the schema's `self-hosted` runner default, that was arbitrary command
+  execution on the maintainer's own machine, triggerable by any GitHub user who
+  can comment on an issue. Every untrusted field now travels through the step's
+  `env:` block and is referenced as `"$VAR"`, the way `issue-triage.yml` already
+  did.
+- **Same class, lower reach, also fixed.** `pr-auto-merge.yml.template`
+  interpolated `workflow_run.head_branch` (git allows `;`, `$` and quotes in a
+  ref), `deploy/supabase-functions.yml.template` interpolated the
+  `workflow_dispatch` input (now passed by env and validated against
+  `[a-zA-Z0-9_-]`), and `pr-auto-review.yml.template` interpolated
+  `pull_request.base.ref`. Numeric fields such as `pull_request.number` were
+  left as they are: GitHub types them as integers and they cannot carry a
+  payload.
+- **The lesson is now a mechanical gate.** CI fails if any known free-text
+  GitHub context field appears inside a `run:` block in any workflow or
+  template. The check is verified by a positive control: reintroducing the
+  original vulnerable line makes it fail, and a `pull_request.number`
+  interpolation does not trip it.
+
+- **`claude-mention.yml` held write access to the code it never writes.** The
+  workflow declares no Edit or Write tool, and its own prompt says it proposes a
+  diff through a comment instead of pushing, yet it requested `contents: write`
+  on a job any GitHub user can trigger. Now `contents: read`. `id-token: write`
+  stays: the action's token exchange needs it, and it is not what widens the
+  blast radius.
+
+### Fixed
+
+- **Every commit broke right after `/keepwright:setup`.** The installed
+  `lefthook.yml` called `scripts/validators/run-all.sh`, which no template ever
+  generated (it was referenced in three places and shipped in none), and it
+  carried `{{SOURCE_GLOB}}` and `{{CMD_TYPECHECK}}` as literal text, because
+  neither token was in the substitution map. Leaving an unknown token intact is
+  the right default for prose a human fills in later, but `lefthook.yml` is
+  executed, so the pre-commit type-check tried to run the string
+  `{{CMD_TYPECHECK}}` as a command. `run-all.sh` now ships (it runs every
+  `validate-*.ts` in the directory and aggregates the exit codes, so local hooks
+  and CI share one list), and the stack matrix in `scripts/lib/stacks.ts` gained
+  a `typecheck` and a `sourceGlob` per stack, with a runnable fallback for an
+  unrecognized stack.
+- **A brownfield repo got a red pipeline on day one.** `apply.ts` correctly
+  refuses to clobber an existing `CLAUDE.md`, but the same run installs the nine
+  rules AND the validator that fails when a rule has no pointer, so any repo that
+  already had a constitution failed `validate-claude-md-sync` on its first push:
+  exactly the "works on any existing repo" case the plugin advertises. Apply now
+  APPENDS a rules index with the missing pointers, never rewriting a line the
+  maintainer wrote, and reports them as `equalized` in its summary. It is a no-op
+  on a second run.
+- **`{{INVARIANT_REFS}}` was posted verbatim into pull requests.** The auto-review
+  comment for a change to a critical file embedded a token that was not in the
+  substitution map, so every such PR received "confirm invariants
+  {{INVARIANT_REFS}}". It now resolves from the configured layers.
+
+- **Five diverging copies of the secret pattern list became one.** The engine,
+  the installed validator, the PR auto-review grep, the auto-merge gate and this
+  repo's own CI each carried a hand-maintained list, and they had already
+  drifted: `ghp_` required 30, 36 or exactly 36 characters depending on which
+  copy you read, the Meta prefix wanted 60 or 80, and only the engine anchored
+  the authorship trailer, which is what produced the banned-terms false
+  positive. They now all read `secret-patterns.ere`, a data file consumed by
+  `grep -E -f` from shell and `new RegExp` from TypeScript with no code
+  generation and no build step. Where two copies disagreed the more permissive
+  bound won: this is a blocker against committing a credential, so a near-miss
+  costs a human glance while a miss costs a rotation. The union also armed the
+  shell greps with the OpenAI, Slack and AWS shapes that only the validator had.
+  `grep -f` reads every line of a pattern file as a pattern, including blank
+  lines that match everything, so each shell consumer strips comments and blanks
+  first, portably, before grepping. CI now plants a fake credential in a freshly
+  installed repo and fails if the validator passes it, and fails if an emptied
+  pattern list is accepted rather than refused.
+
+- **Derived patterns reached nothing.** The `derive-patterns` workflow mined the
+  repo's design and writing-voice conventions and the config schema declared
+  them, but no placeholder consumed them, so every PR was still reviewed against
+  a generic ideal. That was the gap between the README's central claim, that the
+  standard a repo is held to is its own, and what setup actually delivered.
+  `REVIEW.md` gained a §3.4 fed by `{{DERIVED_DESIGN}}` and `{{DERIVED_VOICE}}`,
+  the `pr-review` skill reads that section by name, and when nothing has been
+  derived yet the section says so instead of leaving a blank the reviewer has to
+  interpret. CI fails if the placeholder survives into an installed `REVIEW.md`.
+- **The review skill skipped two of the nine rules.** It globbed
+  `.claude/rules/0[1-7]-*.md`, so `08-empirical-proof` and `09-issue-triage`
+  were never consulted, and any derived rule would have been missed too. It now
+  reads the whole directory: a numbered glob goes stale the moment a rule is
+  added.
+- **The wizard silently defaulted the output language.** Detection reads
+  `language` from `~/.claude/settings.json`, a field Claude Code does not
+  populate by default, so it almost always came back empty and the generated
+  constitution landed in English regardless of the repo. The wizard now asks
+  when detection finds nothing.
+- **Issue triage looked identical whether it worked or not.** Without GitHub
+  Models access the classify step returns empty and the workflow soft-lands on
+  `needs:human-triage`, which is correct but indistinguishable from a model with
+  nothing to say. The template now says so at the top.
+
+- **The engine now refuses to ship a placeholder into a file that gets
+  executed.** `apply.ts` resolves every template in memory first and aborts the
+  whole run, writing nothing, if a `{{TOKEN}}` would survive into a workflow, a
+  hook config or a script. Leaving an unknown token intact is still the right
+  default for prose a human fills in later, so `.md` docs stay tolerant, and the
+  two genuinely human-filled values are listed explicitly and guarded at runtime.
+  This is the generalization of four separate bugs fixed in this release, and it
+  found a fifth on its first run: with no `criticalFiles` configured, the PR
+  auto-review workflow was grepping the changed-file list for the literal string
+  `{{CRITICAL_FILE_1}}`, so the critical-file warning never fired and the repo
+  looked watched while nothing watched it. Unset critical files now resolve to an
+  explicit sentinel that matches no path, making the step visibly inert instead
+  of invisibly broken.
+- **`audit.ts` counted a repo's own files as keepwright coverage.** A project
+  that already had `.github/workflows/ci.yml` scored that path as present, so
+  the audit reported coverage for a pipeline running none of these checks. The
+  generated workflows and `lefthook.yml` now carry a `keepwright:managed`
+  marker, and the audit reports a same-named file that lacks it as
+  "exists, but is not the keepwright one".
+- **`/keepwright:setup` no longer installs into a directory that is not a git
+  repo.** `detect.ts` reports `isGitRepo`, and the wizard stops on false. The
+  worker agent ships with `isolation: worktree` and cannot spawn without a
+  repository, so the old behavior produced a setup that looked complete and
+  worked nowhere.
+- **Layer detection was blind to monorepos.** `detectLayers` only read `src/`
+  or `app/` at the root, so a repo with `packages/*/src` fell back to the
+  generic defaults while claiming the layers came from the real structure. It
+  now walks `packages/*` and `apps/*` as well.
+
+- **The repo blocked itself from editing its own review doc.** The banned-terms
+  grep in `pr-auto-review.yml` matched `Co-Authored-By: Claude` anywhere in an
+  added line, and `REVIEW.md` documents that exact string as an example of what
+  gets detected. Any PR touching that line got "Banned terms detected" and a
+  hard `exit 1`. The authorship patterns are now anchored to the start of an
+  added line, where a real git trailer lives, and `REVIEW.md` joined the
+  pathspec exclusions next to the workflows and rules that were already exempt
+  for the same reason. The engine's own scan had this anchoring from the start;
+  the workflow had drifted from it.
+- **The auto-merge author allowlist matched almost nobody.** It listed
+  `app/github-actions`, but the bot's login is `github-actions[bot]`, so that
+  alternative never matched; and an unquoted `[bot]` in a `case` pattern is a
+  bracket expression matching one of `b`, `o`, `t`, not a literal. The owner
+  placeholder is also the org name in an org repo, never a human's login. The
+  allowlist now quotes its patterns and includes the maintainer login. It always
+  failed toward the human flow, so nothing unsafe merged; the feature was simply
+  dead in most repos.
+- **The documented merge bypass could not work.** `{{PROJECT_UPPER}}` was a raw
+  `toUpperCase()`, so a project named `my-app` produced
+  `${MY-APP_MERGE_UNSAFE:-}`, which bash parses as the default-value form
+  `${VAR-word}`: it expands to the literal word and never reads the variable.
+  The placeholder is now sanitized to `[A-Z0-9_]`.
+- **The auto-merge approve was documented as a gate it cannot be.** GitHub
+  refuses `--approve` on a self-authored PR, and a `GITHUB_TOKEN` review does
+  not satisfy a required-approvals rule. The step no longer dies when the
+  approve is refused, and says plainly that the real gates are the Tier S
+  allowlist, the author allowlist, the secret grep and a green CI.
+- **The OAuth secret was interpolated into a shell script to test it.**
+  `pr-auto-review.yml` did `[ -n "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}" ]`,
+  putting the secret in the script text. It now tests the boolean
+  `secrets.X != ''` through `env`, the same way `claude-mention.yml` does.
+- **`REVIEW.md` claimed the plugin ships 7 rules; it ships 9.** The count went
+  stale when issue triage was added. The prose no longer repeats a number, and
+  points at `validate-claude-md-sync` as the authority on the set.
+
+- **Deploy templates failed late and opaquely on an unfilled placeholder.**
+  `static-pages` (`{{BUILD_DIR}}`) and `supabase-functions`
+  (`{{SUPABASE_PROJECT_REF}}`) are filled in by hand after install and are not
+  in the substitution map by design, but nothing checked them: the workflow ran
+  to the upload or deploy step and failed there, minutes later and far from the
+  cause. Both now fail on their first step with the name of the value and where
+  to set it.
+
+### Removed
+
+- **The orchestration workflows are no longer copied into the target repo.**
+  `apply.ts` wrote `workflows/*.js` into `.claude/workflows/`, where nothing
+  invoked them and where they could not run anyway: they depend on globals the
+  Workflow tool injects (`agent`, `parallel`, `phase`), so `node
+  .claude/workflows/derive-patterns.js` fails with `phase is not defined`. The
+  copy used the never-overwrite path, so it silently aged while the plugin
+  evolved, and it read like live code to anyone browsing the repo. The commands
+  load them from the plugin root, which is the only path that ever worked.
+- **`customValidators` and `mode` are gone from the config schema.** Neither was
+  read by any script. A project-specific validator needs no declaration: drop a
+  `validate-*.ts` into `scripts/validators/` and `run-all.sh` picks it up in both
+  the hook and CI, so the array only promised scaffolding that did not exist.
+  `--mode` remains a flag on `/keepwright:setup`, where it belongs: it selects a
+  conversation path, and a versioned config should describe the repo, not the
+  action being performed on it.
+
+### Documentation
+
+- README states the supported hosts. The engine is portable, but the scaffolded
+  hooks and helper scripts are bash and `setup-oauth-secret.sh` reads the macOS
+  Keychain, so macOS and Linux are supported and Windows needs WSL. The
+  generated Actions run on `ubuntu-latest` and do not depend on the host.
+
 ## [2.2.0] — 2026-07-02
 
 ### Added
@@ -82,6 +341,24 @@ versioning follows [SemVer](https://semver.org/).
 - Clean workflow names — `map-brownfield`, `derive-patterns`, `verify-setup`
   (were prefixed `keepwright-`, which surfaced as the redundant
   `/keepwright:keepwright-*`). No behavior change — the commands trigger them by path.
+
+### Removed
+
+- **The orchestration workflows are no longer copied into the target repo.**
+  `apply.ts` wrote `workflows/*.js` into `.claude/workflows/`, where nothing
+  invoked them and where they could not run anyway: they depend on globals the
+  Workflow tool injects (`agent`, `parallel`, `phase`), so `node
+  .claude/workflows/derive-patterns.js` fails with `phase is not defined`. The
+  copy used the never-overwrite path, so it silently aged while the plugin
+  evolved, and it read like live code to anyone browsing the repo. The commands
+  load them from the plugin root, which is the only path that ever worked.
+- **`customValidators` and `mode` are gone from the config schema.** Neither was
+  read by any script. A project-specific validator needs no declaration: drop a
+  `validate-*.ts` into `scripts/validators/` and `run-all.sh` picks it up in both
+  the hook and CI, so the array only promised scaffolding that did not exist.
+  `--mode` remains a flag on `/keepwright:setup`, where it belongs: it selects a
+  conversation path, and a versioned config should describe the repo, not the
+  action being performed on it.
 
 ### Documentation
 
@@ -226,6 +503,7 @@ real-world projects.
 - Containerized service
 - Monorepo (installs multiple deploy variants)
 
+[2.3.0]: https://github.com/leonardocandiani/keepwright/compare/v2.2.0...v2.3.0
 [2.1.0]: https://github.com/leonardocandiani/keepwright/compare/v2.0.2...v2.1.0
 [2.0.0]: https://github.com/leonardocandiani/keepwright/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/leonardocandiani/keepwright/releases/tag/v1.0.0

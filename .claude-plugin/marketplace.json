@@ -5,13 +5,13 @@
   },
   "metadata": {
     "description": "keepwright — set up and continuously keep engineering quality and architecture true in any git repo.",
-    "version": "2.2.0"
+    "version": "2.3.0"
   },
   "plugins": [
     {
       "name": "keepwright",
       "description": "Interactive wizard that scaffolds a quality architecture (CLAUDE.md, rules, GitHub Actions with AI review, validators, hooks) and keeps it audited and enforced over time.",
-      "version": "2.2.0",
+      "version": "2.3.0",
       "author": {
         "name": "Leonardo Candiani"
       },
