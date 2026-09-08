@@ -1,0 +1,40 @@
+{
+  "name": "keepwright",
+  "desc": "Quality architecture for any git repo, kept true",
+  "typing": [
+    "Quality architecture for any git repo, kept true",
+    "Constitution, rules, CI and AI PR review in one plugin",
+    "Derives your patterns and turns them into validators",
+    "Set up once, audited over time"
+  ],
+  "hero": [
+    {
+      "src": "assets/keepwright-forge.gif",
+      "alt": "keepwright",
+      "width": 300
+    }
+  ],
+  "tagline": "Set up and keep a high-quality engineering architecture in any git repo.",
+  "badges": [
+    "license",
+    "claude",
+    {
+      "label": "runtime",
+      "msg": "Bun or Node 18+",
+      "logo": "bun"
+    },
+    "prs"
+  ],
+  "pitch": "**keepwright** is a Claude Code plugin that implants a constitution, structured rules, GitHub Actions with AI PR review, portable validators and git hooks into any repo, then keeps auditing it so the architecture stays true instead of rotting.",
+  "notice": "Not affiliated with or endorsed by Anthropic. \"Claude\" and \"Claude Code\" are Anthropic trademarks.",
+  "what": {
+    "product": "Claude Code plugin for engineering quality architecture",
+    "installs": "CLAUDE.md constitution · rules/ · validators · git hooks · GitHub Actions",
+    "ci": "CI, AI PR review, @claude mention, safe auto-merge (human-gated for code)",
+    "keeps": "/keepwright:audit, :review, :tidy, :overhaul against derived patterns",
+    "derives": "multi-agent workflows mine your design and writing-voice patterns",
+    "runtime": "bun or Node 18+ (npx tsx); hooks in bash; macOS and Linux (WSL on Windows)",
+    "auth": "OAuth token from the macOS Keychain, set as a repo secret",
+    "license": "MIT"
+  }
+}

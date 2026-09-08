@@ -1,6 +1,12 @@
+<!-- readme-padrao:header -->
 <!-- Banner -->
 <div align="center">
   <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0d1117,50:1a1a2e,100:00d9ff&height=200&section=header&text=keepwright&fontSize=54&fontColor=ffffff&animation=fadeIn&fontAlignY=36&desc=Quality%20architecture%20for%20any%20git%20repo%2C%20kept%20true&descAlignY=58&descSize=16" alt="keepwright" width="100%" />
+</div>
+
+<!-- Typing -->
+<div align="center">
+  <img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=600&size=21&duration=2800&pause=900&color=00d9ff&center=true&vCenter=true&width=840&lines=Quality+architecture+for+any+git+repo%2C+kept+true;Constitution%2C+rules%2C+CI+and+AI+PR+review+in+one+plugin;Derives+your+patterns+and+turns+them+into+validators;Set+up+once%2C+audited+over+time" alt="Quality architecture for any git repo, kept true" />
 </div>
 
 <div align="center">
@@ -19,18 +25,37 @@
   </p>
 
   <p>
-  <a href="#requirements">Requirements</a> •
-  <a href="#install">Install</a> •
-  <a href="#commands">Commands</a> •
-  <a href="#workflows">Workflows</a> •
-  <a href="#skills-agents">Skills & agents</a> •
-  <a href="#cleaning-without-deleting">Cleaning without deleting</a> •
-  <a href="#three-layers">Three layers</a> •
-  <a href="#license">License</a>
+    <a href="#requirements">Requirements</a> •
+    <a href="#install">Install</a> •
+    <a href="#commands">Commands</a> •
+    <a href="#workflows">Workflows</a> •
+    <a href="#skills-agents">Skills & agents</a> •
+    <a href="#cleaning-without-deleting">Cleaning without deleting</a> •
+    <a href="#three-layers">Three layers</a> •
+    <a href="#license">License</a>
   </p>
 </div>
 
 <br>
+
+> **keepwright** is a Claude Code plugin that implants a constitution, structured rules, GitHub Actions with AI PR review, portable validators and git hooks into any repo, then keeps auditing it so the architecture stays true instead of rotting.
+
+> Not affiliated with or endorsed by Anthropic. "Claude" and "Claude Code" are Anthropic trademarks.
+
+## What it is
+
+```yaml
+product:  Claude Code plugin for engineering quality architecture
+installs: CLAUDE.md constitution · rules/ · validators · git hooks · GitHub Actions
+ci:       CI, AI PR review, @claude mention, safe auto-merge (human-gated for code)
+keeps:    /keepwright:audit, :review, :tidy, :overhaul against derived patterns
+derives:  multi-agent workflows mine your design and writing-voice patterns
+runtime:  bun or Node 18+ (npx tsx); hooks in bash; macOS and Linux (WSL on Windows)
+auth:     OAuth token from the macOS Keychain, set as a repo secret
+license:  MIT
+```
+
+<!-- /readme-padrao:header -->
 
 A Claude Code plugin that implants a constitution, structured rules, GitHub
 Actions (CI, AI PR review, `@claude` mention, safe auto-merge), portable
@@ -176,12 +201,14 @@ AI prepares the PR, a human gives a one-line go. Detail in
 
 MIT. See [LICENSE](LICENSE) and [AUTHORS.md](AUTHORS.md).
 
+<!-- readme-padrao:footer -->
 <br>
 
 ---
 
 <div align="center">
   <p><strong>Built by <a href="https://github.com/leonardocandiani">Leonardo Candiani</a></strong> · More projects at <a href="https://github.com/leonardocandiani?tab=repositories">github.com/leonardocandiani</a></p>
+  <p>Leonardo Candiani builds AI agents that talk, decide and close deals. Cofounder of SixQuasar, operating Proteauto, SegSmart and IACall end to end.</p>
   <a href="https://leonardocandiani.com.br">
     <img src="https://img.shields.io/badge/-Website-0d1117?style=for-the-badge&logo=safari&logoColor=00d9ff" alt="Website" />
   </a>
@@ -201,3 +228,4 @@ MIT. See [LICENSE](LICENSE) and [AUTHORS.md](AUTHORS.md).
 <div align="center">
   <img src="https://capsule-render.vercel.app/api?type=waving&color=0:00d9ff,50:1a1a2e,100:0d1117&height=120&section=footer&text=Thanks%20for%20stopping%20by&fontSize=18&fontColor=ffffff&fontAlignY=72" alt="Thanks for stopping by" width="100%" />
 </div>
+<!-- /readme-padrao:footer -->
